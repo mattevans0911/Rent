@@ -3,25 +3,36 @@ import MainLayout from './components/layouts/MainLayout';
 import AuthCard from './components/common/AuthCard';
 import PropertyDashboard from './components/landlord/PropertyDashboard';
 import PaymentSettings from './components/landlord/PaymentSettings';
+import MaintenanceTracker from './components/landlord/MaintenanceTracker';
+import FinancialLedger from './components/landlord/FinancialLedger';
+
+// Clean Explicit Imports for the Tenant Module
+import TenantDashboard from './components/tenant/TenantDashboard.jsx';
+import { PaymentRouterModal, P2PProofUploaderModal } from './components/tenant/TenantPaymentModals.jsx';
+
 import { AddPropertyModal, TenantInviteModal } from './components/landlord/LandlordModals';
-import { Box } from '@mui/material';
+import { Box, Alert, Snackbar } from '@mui/material';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userRole, setUserRole] = useState('landlord');
-  
-  // Track which view state is active (0 = Dashboard, 3 = Settings based on layout indexing)
+  const [userRole, setUserRole] = useState('landlord'); // 'landlord' or 'tenant'
   const [currentNavIndex, setCurrentNavIndex] = useState(0);
 
-  // Modal Open/Closed States
+  // Administrative Landlord Overlay states
   const [isPropertyModalOpen, setIsPropertyModalOpen] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
-  // Mock profile state to pass into settings
-  const [savedSettings, setSavedSettings] = useState({
+  // Core Tenant Interactivity overlay states
+  const [isPayRouterOpen, setIsPayRouterOpen] = useState(false);
+  const [isUploaderOpen, setIsUploaderOpen] = useState(false);
+  const [selectedMethod, setSelectedMethod] = useState('venmo');
+  const [toastOpen, setToastOpen] = useState(false);
+
+  // Pre-configured landlord endpoint configuration settings profiles
+  const [landlordProfile] = useState({
     venmoUser: 'AustinRentals',
     zelleHandle: 'payments@austinrentals.com',
-    allowCards: false
+    allowCards: true
   });
 
   const handleAuth = (authData) => {
@@ -29,36 +40,53 @@ function App() {
     setIsAuthenticated(true);
   };
 
-  const handleSaveSettingsSubmit = (newSettings) => {
-    console.log("UPDATING ROUTING PROFILE IN POSTGRES:", newSettings);
-    setSavedSettings(newSettings);
+  const handleMethodSelection = (method) => {
+    setIsPayRouterOpen(false);
+    if (method === 'card') {
+      alert("Redirecting to external Stripe Checkout engine payment window...");
+    } else {
+      setSelectedMethod(method);
+      setIsUploaderOpen(true);
+    }
   };
 
-  /* Override the default container routing rules based on active sidebar tab clicks */
+  const handleProofSubmission = (payload) => {
+    console.log("UPLOAD SUCCESS. ATTACHING RECEIPT METADATA OBJECT TO DB LEDGER:", payload);
+    setToastOpen(true);
+  };
+
   const renderActiveView = () => {
-    if (currentNavIndex === 3) {
+    // 1. EVALUATE TENANT RUNTIME RENDERS
+    if (userRole === 'tenant') {
       return (
-        <PaymentSettings 
-          initialSettings={savedSettings} 
-          onSaveSettings={handleSaveSettingsSubmit} 
+        <TenantDashboard 
+          onPayRentClick={() => setIsPayRouterOpen(true)}
+          onSubmitMaintenanceClick={() => alert("Opening maintenance request portal...")}
         />
       );
     }
-    // Default fallback to central dashboard grid
-    return (
-      <PropertyDashboard 
-        onAddPropertyClick={() => setIsPropertyModalOpen(true)}
-        onInviteTenantClick={() => setIsInviteModalOpen(true)}
-      />
-    );
+
+    // 2. EVALUATE LANDLORD RUNTIME RENDERS
+    switch (currentNavIndex) {
+      case 0:
+        return <PropertyDashboard onAddPropertyClick={() => setIsPropertyModalOpen(true)} onInviteTenantClick={() => setIsInviteModalOpen(true)} />;
+      case 1:
+        return <FinancialLedger />;
+      case 2:
+        return <MaintenanceTracker />;
+      case 3:
+        return <PaymentSettings initialSettings={landlordProfile} onSaveSettings={(d) => console.log(d)} />;
+      default:
+        return <PropertyDashboard />;
+    }
   };
 
   return (
-    /* Add a small trick to capture the active tab click straight out of MainLayout */
     <Box onClick={(e) => {
-      // Small DOM interceptor to update view states for MVP demo wireframes
       const text = e.target.textContent;
       if (text === 'Dashboard') setCurrentNavIndex(0);
+      if (text === 'Ledger') setCurrentNavIndex(1);
+      if (text === 'Maintenance') setCurrentNavIndex(2);
       if (text === 'Settings') setCurrentNavIndex(3);
     }}>
       <MainLayout userRole={userRole}>
@@ -70,17 +98,32 @@ function App() {
           renderActiveView()
         )}
 
-        <AddPropertyModal 
-          open={isPropertyModalOpen} 
-          onClose={() => setIsPropertyModalOpen(false)} 
-          onSubmit={(data) => console.log('Saved Property:', data)}
+        {/* Global Administrative Landlord overlays */}
+        <AddPropertyModal open={isPropertyModalOpen} onClose={() => setIsPropertyModalOpen(false)} onSubmit={(d) => console.log(d)} />
+        <TenantInviteModal open={isInviteModalOpen} onClose={() => setIsInviteModalOpen(false)} onSubmit={(d) => console.log(d)} />
+
+        {/* Global Operational Tenant overlays */}
+        <PaymentRouterModal 
+          open={isPayRouterOpen} 
+          onClose={() => setIsPayRouterOpen(false)} 
+          onSelectMethod={handleMethodSelection}
+          landlordSettings={landlordProfile}
+        />
+        <P2PProofUploaderModal
+          open={isUploaderOpen}
+          method={selectedMethod}
+          onClose={() => setIsUploaderOpen(false)}
+          landlordSettings={landlordProfile}
+          rentAmount={1200}
+          onSubmitProof={handleProofSubmission}
         />
 
-        <TenantInviteModal 
-          open={isInviteModalOpen} 
-          onClose={() => setIsInviteModalOpen(false)} 
-          onSubmit={(data) => console.log('Sent Invite Link:', data)}
-        />
+        {/* Successful verification confirmation notification tracker */}
+        <Snackbar open={toastOpen} autoHideDuration={4000} onClose={() => setToastOpen(false)}>
+          <Alert severity="success" variant="filled" sx={{ width: '100%', fontWeight: 'bold' }}>
+            Payment Logged! Pending review confirmation by landlord.
+          </Alert>
+        </Snackbar>
       </MainLayout>
     </Box>
   );
